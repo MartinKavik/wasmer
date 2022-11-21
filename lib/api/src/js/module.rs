@@ -16,7 +16,8 @@ use std::io;
 use std::path::Path;
 #[cfg(feature = "std")]
 use thiserror::Error;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsValue, UnwrapThrowExt};
+use wasm_bindgen_futures::JsFuture;
 use wasmer_types::{
     ExportsIterator, ExternType, FunctionType, GlobalType, ImportsIterator, MemoryType, Mutability,
     Pages, TableType, Type,
@@ -170,7 +171,10 @@ impl Module {
     /// # }
     /// ```
     #[allow(unreachable_code)]
-    pub fn new(_store: &impl AsStoreRef, bytes: impl AsRef<[u8]>) -> Result<Self, CompileError> {
+    pub async fn new(
+        _store: &impl AsStoreRef,
+        bytes: impl AsRef<[u8]>,
+    ) -> Result<Self, CompileError> {
         #[cfg(feature = "wat")]
         let bytes = wat::parse_bytes(bytes.as_ref()).map_err(|e| {
             CompileError::Wasm(WasmError::Generic(format!(
@@ -178,7 +182,7 @@ impl Module {
                 e
             )))
         })?;
-        Self::from_binary(_store, bytes.as_ref())
+        Self::from_binary(_store, bytes.as_ref()).await
     }
 
     /// Creates a new WebAssembly module from a file path.
@@ -194,10 +198,13 @@ impl Module {
     /// Opposed to [`Module::new`], this function is not compatible with
     /// the WebAssembly text format (if the "wat" feature is enabled for
     /// this crate).
-    pub fn from_binary(_store: &impl AsStoreRef, binary: &[u8]) -> Result<Self, CompileError> {
+    pub async fn from_binary(
+        _store: &impl AsStoreRef,
+        binary: &[u8],
+    ) -> Result<Self, CompileError> {
         //
         // Self::validate(store, binary)?;
-        unsafe { Self::from_binary_unchecked(_store, binary) }
+        unsafe { Self::from_binary_unchecked(_store, binary).await }
     }
 
     /// Creates a new WebAssembly module skipping any kind of validation.
@@ -206,12 +213,11 @@ impl Module {
     ///
     /// This is safe since the JS vm should be safe already.
     /// We maintain the `unsafe` to preserve the same API as Wasmer
-    pub unsafe fn from_binary_unchecked(
+    pub async unsafe fn from_binary_unchecked(
         _store: &impl AsStoreRef,
         binary: &[u8],
     ) -> Result<Self, CompileError> {
-        let js_bytes = Uint8Array::view(binary);
-        let module = WebAssembly::Module::new(&js_bytes.into()).unwrap();
+        let module = Self::compile(binary).await;
 
         // The module is now validated, so we can safely parse it's types
         #[cfg(feature = "wasm-types-polyfill")]
@@ -246,6 +252,18 @@ impl Module {
         })
     }
 
+    async unsafe fn compile(binary: &[u8]) -> WebAssembly::Module {
+        // Note: We cannot just call `WebAssembly::Module::new` because
+        // only Web Workers allow synchronous compilation of modules
+        // larger than 4 KB.
+
+        let js_bytes = Uint8Array::view(binary);
+        let module_promise = WebAssembly::compile(&JsValue::from(js_bytes));
+        // @TODO-WASMER: Replace all `unwrap()` with `unwrap_throw()`?
+        let module_js_value = JsFuture::from(module_promise).await.unwrap_throw();
+        WebAssembly::Module::from(module_js_value)
+    }
+
     /// Validates a new WebAssembly Module given the configuration
     /// in the Store.
     ///
@@ -260,7 +278,7 @@ impl Module {
         }
     }
 
-    pub(crate) fn instantiate(
+    pub(crate) async fn instantiate(
         &self,
         store: &mut impl AsStoreMut,
         imports: &Imports,
@@ -276,8 +294,14 @@ impl Module {
         }
 
         let imports_js_obj = imports.as_jsvalue(store).into();
-        Ok(WebAssembly::Instance::new(&self.module, &imports_js_obj)
-            .map_err(|e: JsValue| -> RuntimeError { e.into() })?)
+        // Note: We cannot just call `WebAssembly::Instance::new` because
+        // only Web Workers allow synchronous instantiation of modules
+        // larger than 4 KB.
+        let instance_promise = WebAssembly::instantiate_module(&self.module, &imports_js_obj);
+        JsFuture::from(instance_promise)
+            .await
+            .map_err(|e: JsValue| -> RuntimeError { e.into() })
+            .map(WebAssembly::Instance::from)
     }
 
     /// Returns the name of the current module.

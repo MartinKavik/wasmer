@@ -163,6 +163,7 @@ impl Exports {
     {
         self.get_function(name)?
             .typed(store)
+            // @TODO-WASMER: Don't hide errors.
             .map_err(|_| ExportError::IncompatibleType)
     }
 

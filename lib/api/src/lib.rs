@@ -28,6 +28,16 @@
 #![allow(deprecated_cfg_attr_crate_type_name)]
 #![cfg_attr(feature = "js", crate_type = "cdylib")]
 
+
+// @TODO-WASMER: Resolve all compilation warnings (unused variables and imports, etc.).
+
+// @TODO-WASMER: Fix all tests (if they are failing).
+
+// @TODO-WASMER: Is inconsistency between `js` and `sys` Wasmer APIs ok (added `async`s)?.
+
+// @TODO-WASMER: Maybe add the method `Module::from_response(web_sys::Response)` 
+
+
 //! [`Wasmer`](https://wasmer.io/) is the most popular
 //! [WebAssembly](https://webassembly.org/) runtime for Rust. It supports
 //! JIT (Just In Time) and AOT (Ahead Of Time) compilation as well as

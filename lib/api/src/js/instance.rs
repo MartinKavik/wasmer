@@ -58,13 +58,14 @@ impl Instance {
     /// Those are, as defined by the spec:
     ///  * Link errors that happen when plugging the imports into the instance
     ///  * Runtime errors that happen when running the module `start` function.
-    pub fn new(
+    pub async fn new(
         mut store: &mut impl AsStoreMut,
         module: &Module,
         imports: &Imports,
     ) -> Result<Self, InstantiationError> {
         let instance: WebAssembly::Instance = module
             .instantiate(&mut store, imports)
+            .await
             .map_err(|e| InstantiationError::Start(e))?;
 
         let self_instance = Self::from_module_and_instance(store, module, instance)?;
@@ -82,7 +83,7 @@ impl Instance {
     /// Those are, as defined by the spec:
     ///  * Link errors that happen when plugging the imports into the instance
     ///  * Runtime errors that happen when running the module `start` function.
-    pub fn new_by_index(
+    pub async fn new_by_index(
         store: &mut impl AsStoreMut,
         module: &Module,
         externs: &[Extern],
@@ -91,7 +92,7 @@ impl Instance {
         for (import_ty, extern_ty) in module.imports().zip(externs.iter()) {
             imports.define(import_ty.module(), import_ty.name(), extern_ty.clone());
         }
-        Self::new(store, module, &imports)
+        Self::new(store, module, &imports).await
     }
 
     /// Creates a Wasmer `Instance` from a Wasmer `Module` and a WebAssembly Instance
